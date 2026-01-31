@@ -30,7 +30,3 @@ export -f log
 export -f err
 export -f die
 export -f assert
-
-readonly SECONDS_MINUTE=60
-readonly SECONDS_HOUR=$((60 * SECONDS_MINUTE))
-readonly SECONDS_DAY=$((24 * SECONDS_HOUR))

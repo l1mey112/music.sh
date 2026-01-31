@@ -1,6 +1,7 @@
 %rec: Seed
 %type: Artist line
-%type: Playlist line
+%type: PlaylistRefresh line
+%type: PlaylistUploads line
 %type: Playlists line
 %type: Epoch int
 %key: Artist
@@ -8,16 +9,13 @@
 
 # recfix --check music/Seed.rec
 
-#Artist: kamome sano
-#Playlist: https://www.youtube.com/@kamomesano
-#Playlist: https://www.youtube.com/playlist?list=PLWQ_9nw8gt-UkgG6c7YoI7wjUYZcvT9zX
+Artist: kamome sano
+PlaylistRefresh: https://www.youtube.com/playlist?list=PLWQ_9nw8gt-UkgG6c7YoI7wjUYZcvT9zX
+PlaylistUploads: https://www.youtube.com/@kamomesano
+Epoch: 1769848789
+
 #Playlists: https://www.youtube.com/@kamomesano/releases
-#Epoch: 1769728894
 
 Artist: RewindFlash
 Playlists: https://www.youtube.com/@Rewind-Flash/releases
-Epoch: 0
-
-# TODO: artist is the albumartist on the metadata
-
-# TODO: hash based on url "https://www.youtube.com/@kamomesano", then map to lockfile to#       store whether or not the playlist has been downloaded at some point
+Epoch: 1769847616

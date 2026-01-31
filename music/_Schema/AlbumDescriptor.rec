@@ -1,0 +1,7 @@
+%rec: AlbumDescriptor
+%type: AlbumArtist line
+%type: AlbumTitle line
+%type: Source line
+%type: Kind enum immutable mutable
+%type: Created date
+%mandatory: AlbumArtist AlbumTitle
