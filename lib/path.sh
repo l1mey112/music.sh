@@ -25,4 +25,7 @@ path_safe() {
 	echo "$k"
 }
 
-
+path_store() {
+	echo "$DATA_DIR/store"
+	mkdir -p "$DATA_DIR/store"
+}

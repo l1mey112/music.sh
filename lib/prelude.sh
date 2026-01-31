@@ -4,9 +4,6 @@ set -o errexit # exit on nonzero code
 set -o nounset
 set -o pipefail # exit code of the last command to fail, not the last command
 
-JOBS=${JOBS:-8}
-readonly JOBS
-
 log() {
 	echo >&2 "[INFO] ${1}"
 }
@@ -20,7 +17,20 @@ die() {
 	exit 1
 }
 
+assert() {
+    local msg="${1:-"no message provided"}"
+    local line="${BASH_LINENO[0]}"
+    local file="${BASH_SOURCE[1]}"
+    
+    die "assertion failed in ${file} at line ${line}: ${msg}"
+}
+
 # parallel
 export -f log
 export -f err
 export -f die
+export -f assert
+
+readonly SECONDS_MINUTE=60
+readonly SECONDS_HOUR=$((60 * SECONDS_MINUTE))
+readonly SECONDS_DAY=$((24 * SECONDS_HOUR))
