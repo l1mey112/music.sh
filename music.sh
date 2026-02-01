@@ -13,7 +13,7 @@ readonly JOBS=${JOBS:-4}
 readonly DATA_DIR=${DATA_DIR:-"$SCRIPT_DIR/music"}
 
 # TODO: add a fuzz factor as well
-readonly RECHECK_INTERVAL=${RECHECK_INTERVAL:-$((1 * SECONDS_HOUR))}
+readonly RECHECK_INTERVAL=${RECHECK_INTERVAL:-$((48 * SECONDS_HOUR))}
 
 # }}
 
@@ -369,6 +369,9 @@ handle_seed() {
 		recset -e "Epoch < $current_epoch - $RECHECK_INTERVAL" \
 			-f Epoch -S "$current_epoch" \
 			"$SEED"
+
+		# TODO: bug-recutils: Recset does not respect comment formatting
+		sed -i '/^#/s/\([^[:space:]]\)#/\1\n#/g' "$SEED"
 	fi
 }
 
