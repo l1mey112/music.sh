@@ -10,12 +10,12 @@
 # recfix --check music/Seed.rec
 
 Artist: kamome sano
-PlaylistRefresh: https://www.youtube.com/playlist?list=PLWQ_9nw8gt-UkgG6c7YoI7wjUYZcvT9zX
+Playlists: https://www.youtube.com/@kamomesano/releases
 PlaylistUploads: https://www.youtube.com/@kamomesano
-Epoch: 1769919725
+Epoch: 1769928722
 
-#Playlists: https://www.youtube.com/@kamomesano/releases
+#PlaylistRefresh: https://www.youtube.com/playlist?list=PLWQ_9nw8gt-UkgG6c7YoI7wjUYZcvT9zX
 
 Artist: RewindFlash
 Playlists: https://www.youtube.com/@Rewind-Flash/releases
-Epoch: 1769919725
+Epoch: 1769928683

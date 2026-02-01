@@ -20,6 +20,9 @@ readonly RECHECK_INTERVAL=${RECHECK_INTERVAL:-$((1 * SECONDS_HOUR))}
 source "$SCRIPT_DIR/lib/prelude.sh"
 source "$SCRIPT_DIR/lib/path.sh"
 
+# TODO: switch to using \x1f as a separator instead of ; where it matters
+readonly DLM=$'\x1f'
+
 # playlist_extract_canonical
 #
 # This is needed for various reasons. When you go to the Releases tab of
@@ -78,40 +81,100 @@ playlist_extract_title() {
 	output=$(yt-dlp "$URL" --flat-playlist --dump-single-json | jq -r .title)
 
 	local ytdlp_status=$?
-	[[ $ytdlp_status -eq 0 ]] || assert "  -> yt-dlp failed for this seed file (exit code: $ytdlp_status)"
+	[[ $ytdlp_status -eq 0 ]] || assert_fail "  -> yt-dlp failed for this seed file (exit code: $ytdlp_status)"
 
 	echo "$output"
 }
 
-recutils_to_json() {
-	# https://lists.gnu.org/archive/html/help-recutils/2014-06/msg00001.html
-	
-	# shouldn't have serialisation issues
-	rec2csv -t "$1" "$2" | python3 -c 'import csv,json,sys; print(json.dumps(list(csv.DictReader(sys.stdin))))'
-}
-
-recutils_to_json_single() {
-	recutils_to_json "$1" "$2" | jq '.[0]'
-}
-
-# array of '[{ ... }, 0, { ... }]' which is (AlbumDescriptor, tracknumber, Track) pairs
+# TODO: eventually handle local files (that also respect the mutability, so these need to be handled)
+# (mutability, albumtitle, albumartist, trackindex, title, youtubeid)
 declare -a collected_tracks_list=()
 
-collect_tracks_file() {
-	local album_descriptor tracks
+# this is written in pure bash to avoid subshells where performance drops off
+# a cliff. that means `recsel` is not used here
+#
+# this parser does not care about multiline continuations. this is expressed
+# inside the schema anyway, but could be an issue if someone were to use %doc
+parse_recfile_album() {
+	local file="$1"
 
-	album_descriptor=$(recutils_to_json_single AlbumDescriptor "$1")
-	tracks=$(recutils_to_json Track "$1")
+	local lines
+	readarray -t lines < "$file"
 
-	local tracknumber=1
-	while read -r track; do
-		collected_tracks_list+=("[$album_descriptor,$tracknumber,$track]")
-		tracknumber=$((tracknumber + 1))
-	done < <(jq -c '.[]' <<< "$tracks")
+	declare -A current_rec=()
+	declare -A album_cache=()
+
+	# AlbumDescriptor or Track
+	local mode=""
+	local track_idx=0
+
+	try_commit_record() {
+		[[ ${#current_rec[@]} -eq 0 ]] && return
+
+		if [[ "$mode" == "AlbumDescriptor" ]]; then
+			# cache the album data for next tracks
+			local k
+			for k in "${!current_rec[@]}"; do
+				album_cache["$k"]="${current_rec[$k]}"
+			done
+		
+		elif [[ "$mode" == "Track" ]]; then
+			if [[ -z "${album_cache[AlbumTitle]}" ]]; then
+				assert_fail "parse_recfile_album: Track found before AlbumDescriptor in $file"
+			fi
+
+			track_idx=$((track_idx + 1))
+			
+			local serialised
+			# (mutability, albumtitle, albumartist, trackindex, title, youtubeid)
+			printf -v serialised "%s${DLM}%s${DLM}%s${DLM}%s${DLM}%s${DLM}%s" \
+				"${album_cache[Metadata]}" \
+				"${album_cache[AlbumTitle]}" \
+				"${album_cache[AlbumArtist]}" \
+				"$track_idx" \
+				"${current_rec[Title]}" \
+				"${current_rec[YouTubeId]}"
+
+			collected_tracks_list+=("$serialised")
+		else
+			log "parse_recfile_album: WARN found erroneous record of type $mode in $file"
+		fi
+
+		current_rec=()
+	}
+
+	local line
+	for line in "${lines[@]}"; do
+
+		if [[ -z "$line" ]]; then
+			try_commit_record
+			continue
+		fi
+
+		if [[ "${line:0:1}" == "#" ]]; then 
+			continue
+		fi
+
+		if [[ "${line:0:5}" == "%rec:" ]]; then
+			# %rec: TypeName _Schema/TypeName.rec
+			local remainder="${line#%rec: }"
+			mode="${remainder%% *}"
+			continue
+		fi
+
+		if [[ "$line" == *:* ]]; then
+			local key="${line%%:*}"
+			local val="${line#*:}"
+			
+			# trim leading space
+			val="${val# }"
+			current_rec["$key"]="$val"
+		fi
+	done
+	try_commit_record
+
+	unset current_rec album_cache
 }
-
-# TODO: it is very important that this supports local files as well, support for
-#       that will come when the schema is changed
 
 collect_tracks() {
 	# for every file inside $DATA_DIR that contains an AlbumDescriptor visit
@@ -120,7 +183,7 @@ collect_tracks() {
 	local file_path
 
 	while IFS= read -r -d '' file_path; do
-		collect_tracks_file "$file_path"
+		parse_recfile_album "$file_path"
 	done < <(find "$DATA_DIR" -type f -exec grep -lZ -F "$pattern" {} +)
 }
 
@@ -128,18 +191,20 @@ handle_seed_playlist_list() {
 	local -r ARTIST="$1"
 	local -r PLAYLIST_LIST_URL="$2"
 
+	log "  -> extracting the list, please be patient"
+
 	local output
 	output=$(yt-dlp --flat-playlist --print "%(webpage_url)s;%(title)s" "$PLAYLIST_LIST_URL" 2>/dev/null)
 
 	local ytdlp_status=$?
-	[[ $ytdlp_status -eq 0 ]] || assert "  -> yt-dlp failed for this seed file (exit code: $ytdlp_status)"
+	[[ $ytdlp_status -eq 0 ]] || assert_fail "  -> yt-dlp failed for this seed file (exit code: $ytdlp_status)"
 
 	if [[ -z "$output" ]]; then
 		log "  -> no playlists discovered"
 		return
 	fi
 
-	local playlist_data
+	local playlist_data line
 	mapfile -t playlist_data <<< "$output"
 	for line in "${playlist_data[@]}"; do
 		local playlist_url playlist_title
@@ -160,7 +225,7 @@ handle_seed_playlist() {
 	local kind artist playlist title
 	IFS=';' read -r kind artist playlist title <<< "$1"
 
-	log "Writing: $artist - $title ($kind)"
+	log "$artist - $title ($kind)"
 
 	local album_filename
 	local artist_path
@@ -211,7 +276,7 @@ EOF
 		recdel -t Track --force "$tmp_file_path"
 	fi
 
-	local video_data
+	local video_data line
 	mapfile -t video_data < <(yt-dlp \
 		--match-filter "original_url!*=/shorts/ & url!*=/shorts/" \
 		--flat-playlist --print "%(id)s;%(title)s" "$playlist" 2>/dev/null)
@@ -259,7 +324,7 @@ handle_seed() {
 			continue
 		fi
 
-		[[ -n $artist ]] || assert "seed file is malformed: Artist in the wrong order, must be first"
+		[[ -n $artist ]] || assert_fail "seed file is malformed: Artist in the wrong order, must be first"
 
 		if [[ "$line" == PlaylistRefresh:* ]] || [[ "$line" == PlaylistUploads:* ]]; then
 			local line_kind playlist
@@ -290,8 +355,9 @@ handle_seed() {
 
 		#((amount++)) - with `set -e` this entire thing dies as amount=0
 		amount=$((amount + 1))
-	done < <(recsel -e "Epoch < $current_epoch - $RECHECK_INTERVAL" -p Artist,Playlist,PlaylistRefresh,PlaylistUploads "$SEED")
+	done < <(recsel -e "Epoch < $current_epoch - $RECHECK_INTERVAL" -p Artist,Playlists,PlaylistRefresh,PlaylistUploads "$SEED")
 
+	local tuple
 	for tuple in "${urls[@]}"; do
 		handle_seed_playlist "$tuple"
 	done
@@ -309,8 +375,9 @@ handle_seed() {
 handle_seed
 collect_tracks # writes to collected_tracks_list (global)
 
-echo "${#collected_tracks_list[@]}"
+log "${#collected_tracks_list[@]} collected tracks"
 
-for line in "${collected_tracks_list[@]}"; do
-	echo "$line"
-done
+#for line in "${collected_tracks_list[@]}"; do
+#	IFS=$DLM read -r mutability albumtitle albumartist trackindex title youtubeid <<< "$line"
+#	echo $mutability $albumtitle $albumartist $trackindex $title $youtubeid
+#done
