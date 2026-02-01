@@ -3,6 +3,7 @@
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 readonly SCRIPT_DIR
 
+# NOTE: do not use readonly in functions, these create global variables
 readonly SECONDS_MINUTE=60
 readonly SECONDS_HOUR=$((60 * SECONDS_MINUTE))
 
@@ -49,8 +50,8 @@ source "$SCRIPT_DIR/lib/path.sh"
 # TLDR: use this to get the right playlist.
 #
 playlist_extract_canonical() {
-	local URL="$1"
-	local useragent="Mozilla/5.0 (X11; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0"
+	local -r URL="$1"
+	local -r useragent="Mozilla/5.0 (X11; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0"
 
 	local playlist
 	playlist=$(echo "$URL" | sed -E 's/(www\.)?youtube\.com/music.youtube.com/')
@@ -71,7 +72,7 @@ playlist_extract_canonical() {
 
 # does not call path_safe on the name, caller's responsibility
 playlist_extract_title() {
-	local URL="$1"
+	local -r URL="$1"
 
 	local output
 	output=$(yt-dlp "$URL" --flat-playlist --dump-single-json | jq -r .title)
@@ -82,9 +83,50 @@ playlist_extract_title() {
 	echo "$output"
 }
 
+recutils_to_json() {
+	# https://lists.gnu.org/archive/html/help-recutils/2014-06/msg00001.html
+	
+	# shouldn't have serialisation issues
+	rec2csv -t "$1" "$2" | python3 -c 'import csv,json,sys; print(json.dumps(list(csv.DictReader(sys.stdin))))'
+}
+
+recutils_to_json_single() {
+	recutils_to_json "$1" "$2" | jq '.[0]'
+}
+
+# array of '[{ ... }, 0, { ... }]' which is (AlbumDescriptor, tracknumber, Track) pairs
+declare -a collected_tracks_list=()
+
+collect_tracks_file() {
+	local album_descriptor tracks
+
+	album_descriptor=$(recutils_to_json_single AlbumDescriptor "$1")
+	tracks=$(recutils_to_json Track "$1")
+
+	local tracknumber=1
+	while read -r track; do
+		collected_tracks_list+=("[$album_descriptor,$tracknumber,$track]")
+		tracknumber=$((tracknumber + 1))
+	done < <(jq -c '.[]' <<< "$tracks")
+}
+
+# TODO: it is very important that this supports local files as well, support for
+#       that will come when the schema is changed
+
+collect_tracks() {
+	# for every file inside $DATA_DIR that contains an AlbumDescriptor visit
+	# that file and handle the Tracks
+	local pattern="%rec: AlbumDescriptor _Schema/AlbumDescriptor.rec"
+	local file_path
+
+	while IFS= read -r -d '' file_path; do
+		collect_tracks_file "$file_path"
+	done < <(find "$DATA_DIR" -type f -exec grep -lZ -F "$pattern" {} +)
+}
+
 handle_seed_playlist_list() {
-	readonly ARTIST="$1"
-	readonly PLAYLIST_LIST_URL="$2"
+	local -r ARTIST="$1"
+	local -r PLAYLIST_LIST_URL="$2"
 
 	local output
 	output=$(yt-dlp --flat-playlist --print "%(webpage_url)s;%(title)s" "$PLAYLIST_LIST_URL" 2>/dev/null)
@@ -161,12 +203,12 @@ Metadata: $kind
 
 # automatically generated, do not edit tracklist below
 
-%rec: YouTubeTrack _Schema/YouTubeTrack.rec
+%rec: Track _Schema/Track.rec
 EOF
 	else
 		# --force this because we are deleting all the entries (dangerous)
 		cp "$file_path" "$tmp_file_path"
-		recdel -t YouTubeTrack --force "$tmp_file_path"
+		recdel -t Track --force "$tmp_file_path"
 	fi
 
 	local video_data
@@ -179,7 +221,7 @@ EOF
 		IFS=';' read -r video_id video_title <<< "$line"
 
 		# we want to --force this because we can't access the schema anyway
-		recins -t YouTubeTrack --force "$tmp_file_path" \
+		recins -t Track --force "$tmp_file_path" \
 			-f Title -v "$video_title" \
 			-f YouTubeId -v "$video_id"
 	done
@@ -196,7 +238,7 @@ EOF
 }
 
 handle_seed() {
-	readonly SEED="$1"
+	local -r SEED="$DATA_DIR/Seed.rec"
 	log "seed file $SEED"
 
 	# artist;playlist;title
@@ -264,7 +306,11 @@ handle_seed() {
 	fi
 }
 
-# previously music.sh downloaded by youtube id, this goes by playlist now.
-# yt-dlp can do more of the heavy lifting, and this script gets simpler
+handle_seed
+collect_tracks # writes to collected_tracks_list (global)
 
-handle_seed "$DATA_DIR/Seed.rec"
+echo "${#collected_tracks_list[@]}"
+
+for line in "${collected_tracks_list[@]}"; do
+	echo "$line"
+done

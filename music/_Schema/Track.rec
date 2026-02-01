@@ -1,0 +1,4 @@
+%rec: Track
+%type: Title line
+%type: YouTubeId line
+%mandatory: Title
