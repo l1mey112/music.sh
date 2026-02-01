@@ -127,18 +127,47 @@ handle_seed_playlist() {
 	artist_path="$DATA_DIR/$(path_safe "$artist")"
 	mkdir -p "$artist_path"
 
-	cat <<EOF > "$artist_path/$album_filename"
+	local tmp_dir file_path tmp_file_path
+	tmp_dir=$(mktemp -d)
+	# need to remove the trap when coming out, for some reason
+	trap 'rm -rf -- "$tmp_dir"; trap - RETURN' RETURN
+
+	# TODO: at some point, it might be preferrable to actually search through
+	#       all the files in the "$artist_path" directory to find a file with
+	#       a matching Source, then do the update.
+	#
+	#       until then if you change the name of the file and reseed, it will
+	#       duplicate the album. probably not what you want, but in the current
+	#       state you do get to change the name anyway.
+	#
+	#       if the name of the playlist changes, this also will happen.
+
+	# we want to atomically edit this playlist nicely
+	tmp_file_path="$tmp_dir/album.rec"
+	file_path="$artist_path/$album_filename"
+	local created=false
+
+	# if the file doesn't exist, create it
+	if ! [[ -e "$file_path" ]]; then
+		created=true
+		cat <<EOF > "$tmp_file_path"
 %rec: AlbumDescriptor _Schema/AlbumDescriptor.rec
 
-# automatically generated, will be overwritten
 AlbumArtist: $artist
 AlbumTitle: $title
 Source: $playlist
 Created: $(LC_ALL=C TZ=UTC0 date)
 Metadata: $kind
 
+# automatically generated, do not edit tracklist below
+
 %rec: YouTubeTrack _Schema/YouTubeTrack.rec
 EOF
+	else
+		# --force this because we are deleting all the entries (dangerous)
+		cp "$file_path" "$tmp_file_path"
+		recdel -t YouTubeTrack --force "$tmp_file_path"
+	fi
 
 	local video_data
 	mapfile -t video_data < <(yt-dlp \
@@ -149,14 +178,21 @@ EOF
 		local video_id video_title
 		IFS=';' read -r video_id video_title <<< "$line"
 
-		cat <<EOF >> "$artist_path/$album_filename"
-
-Title: $video_title
-YouTubeId: $video_id
-EOF
+		# we want to --force this because we can't access the schema anyway
+		recins -t YouTubeTrack --force "$tmp_file_path" \
+			-f Title -v "$video_title" \
+			-f YouTubeId -v "$video_id"
 	done
 
-	log "  -> wrote ${#video_data[@]}"
+	# atomic please
+	mv "$tmp_file_path" "$file_path"
+	if $created; then
+		log "  -> wrote ${#video_data[@]}"
+		log "  -> created $album_filename"
+	else
+		log "  -> wrote ${#video_data[@]}"
+		log "  -> edited $album_filename"
+	fi
 }
 
 handle_seed() {
