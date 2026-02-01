@@ -91,10 +91,13 @@ playlist_extract_title() {
 declare -a collected_tracks_list=()
 
 # this is written in pure bash to avoid subshells where performance drops off
-# a cliff. that means `recsel` is not used here
+# a cliff. that means `recsel` or other normalisation is not used here
 #
 # this parser does not care about multiline continuations. this is expressed
 # inside the schema anyway, but could be an issue if someone were to use %doc
+#
+# TODO: eventually when things get slow (probably never), you might want to
+#       use parallel
 parse_recfile_album() {
 	local file="$1"
 
@@ -375,10 +378,48 @@ handle_seed() {
 	fi
 }
 
-handle_seed
-collect_tracks # writes to collected_tracks_list (global)
+# certain exports are needed for parallel
+export -f path_store_sharded_nr
+export DATA_DIR DLM
+parallel_download_track() {
+	# prelude
+	set -o errexit -o nounset -o pipefail
+	
+	local mutability albumtitle albumartist trackindex title youtubeid
+	IFS=$DLM read -r mutability albumtitle albumartist trackindex title youtubeid <<< "$1"
 
-log "${#collected_tracks_list[@]} collected tracks"
+	local file_path # theses paths are sharded by the first character
+	path_store_sharded_nr file_path "$youtubeid" ".mp3"
+
+	# don't touch a single subshell here (no mktmp -d)
+	# https://nullprogram.com/blog/2018/12/25/ for $RANDOM
+	printf -v tmp_dir "/tmp/work_%s_%s_%s" "$$" "$PARALLEL_SEQ" "$RANDOM"
+	mkdir "$tmp_dir"
+	trap 'rm -rf "$tmp_dir"' EXIT
+
+	echo $file_path
+	echo $mutability $albumtitle $albumartist $trackindex $title $youtubeid
+}
+export -f parallel_download_track
+
+handle_missing() {
+	# writes to collected_tracks_list (global)
+	collect_tracks
+	log "${#collected_tracks_list[@]} collected tracks"
+
+	path_store_shards_youtube_id
+	parallel \
+		--jobs "$JOBS" \
+		--line-buffer \
+		parallel_download_track {} ::: "${collected_tracks_list[@]}"
+}
+
+if [[ ! -d "$DATA_DIR" ]]; then
+	assert_fail "the data directory $DATA_DIR is not a folder or does not exist"
+fi
+
+handle_seed
+handle_missing
 
 #for line in "${collected_tracks_list[@]}"; do
 #	IFS=$DLM read -r mutability albumtitle albumartist trackindex title youtubeid <<< "$line"
