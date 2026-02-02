@@ -356,8 +356,8 @@ handle_seed() {
 			urls=( "${urls[@]}" "$metadata;$artist;$playlist;$title" )
 		fi
 
-		if [[ "$line" == Playlists:* ]]; then
-			playlist_list="${line#Playlists: }"
+		if [[ "$line" == Releases:* ]]; then
+			playlist_list="${line#Releases: }"
 			log "(seed list \"$artist\") $playlist_list"
 		
 			output=$(handle_seed_playlist_list "$artist" "$playlist_list")
