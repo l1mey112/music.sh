@@ -184,12 +184,11 @@ parse_recfile_album() {
 collect_tracks() {
 	# for every file inside $DATA_DIR that contains an AlbumDescriptor visit
 	# that file and handle the Tracks
-	local pattern="%rec: AlbumDescriptor _Schema/AlbumDescriptor.rec"
 	local file_path
 
 	while IFS= read -r -d '' file_path; do
 		parse_recfile_album "$file_path"
-	done < <(find "$DATA_DIR" -path "$DATA_DIR/_*" -prune -o -type f -exec grep -lZ -F "$pattern" {} +)
+	done < <(rg -uu -l0F "%rec: AlbumDescriptor _Schema/AlbumDescriptor.rec" "$DATA_DIR" -g '!/_*')
 }
 
 handle_seed_playlist_list() {
@@ -239,11 +238,6 @@ handle_seed_playlist() {
 	artist_path="$DATA_DIR/$(path_safe "$artist")"
 	mkdir -p "$artist_path"
 
-	local tmp_dir file_path tmp_file_path
-	tmp_dir=$(mktemp -d)
-	# need to remove the trap when coming out, for some reason
-	trap 'rm -rf -- "$tmp_dir"; trap - RETURN' RETURN
-
 	# TODO: at some point, it might be preferrable to actually search through
 	#       all the files in the "$artist_path" directory to find a file with
 	#       a matching Source, then do the update.
@@ -253,6 +247,20 @@ handle_seed_playlist() {
 	#       state you do get to change the name anyway.
 	#
 	#       if the name of the playlist changes, this also will happen.
+
+	# check if the album with the same "Source:" exists already.
+	#
+	# for example, VOLTA and RewindFlash share some of the same releases, but
+	# RewindFlash is a label and we want as much music under the label as we can
+	if rg -uuqF "Source: $playlist" "$DATA_DIR" -g '!/_*' -g "!${artist_path#"$DATA_DIR"/}"; then
+		log "  -> album $title by $artist with Source already exists, ignoring"
+		return
+	fi
+
+	local tmp_dir file_path tmp_file_path
+	tmp_dir=$(mktemp -d)
+	# need to remove the trap when coming out, for some reason
+	trap 'rm -rf -- "$tmp_dir"; trap - RETURN' RETURN
 
 	# we want to atomically edit this playlist nicely
 	tmp_file_path="$tmp_dir/album.rec"
@@ -367,7 +375,7 @@ handle_seed() {
 
 		#((amount++)) - with `set -e` this entire thing dies as amount=0
 		amount=$((amount + 1))
-	done < <(recsel -e "Epoch < $current_epoch - $RECHECK_INTERVAL" -p Artist,Playlists,Playlist,PlaylistRefresh,PlaylistUploads "$SEED")
+	done < <(recsel -e "Epoch < $current_epoch - $RECHECK_INTERVAL" -p Artist,Releases,Playlist,PlaylistRefresh,PlaylistUploads "$SEED")
 
 	local tuple
 	for tuple in "${urls[@]}"; do
@@ -503,6 +511,9 @@ main() {
 	fi
 	if ! command -v parallel &> /dev/null; then
 		assert_fail "'parallel' could not be found. please install it"
+	fi
+	if ! command -v rg &> /dev/null; then
+		assert_fail "'rg' (ripgrep) could not be found. please install it"
 	fi
 	if ! command -v convert &> /dev/null; then
 		assert_fail "'imagemagick' (convert) could not be found. please install it"
