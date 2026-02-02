@@ -10,7 +10,9 @@ readonly SECONDS_HOUR=$((60 * SECONDS_MINUTE))
 # PARAMETERS {{
 
 readonly JOBS=${JOBS:-4}
-readonly DATA_DIR=${DATA_DIR:-"$SCRIPT_DIR/music"}
+DATA_DIR=${DATA_DIR:-"$SCRIPT_DIR/music"}
+DATA_DIR="${DATA_DIR%/}"
+readonly DATA_DIR
 
 # TODO: add a fuzz factor as well
 readonly RECHECK_INTERVAL=${RECHECK_INTERVAL:-$((48 * SECONDS_HOUR))}
@@ -187,7 +189,7 @@ collect_tracks() {
 
 	while IFS= read -r -d '' file_path; do
 		parse_recfile_album "$file_path"
-	done < <(find "$DATA_DIR" -type f -exec grep -lZ -F "$pattern" {} +)
+	done < <(find "$DATA_DIR" -path "$DATA_DIR/_*" -prune -o -type f -exec grep -lZ -F "$pattern" {} +)
 }
 
 handle_seed_playlist_list() {
@@ -380,16 +382,26 @@ handle_seed() {
 
 # certain exports are needed for parallel
 export -f path_store_sharded_nr
-export DATA_DIR DLM
+export SCRIPT_DIR DATA_DIR DLM
 parallel_download_track() {
-	# prelude
-	set -o errexit -o nounset -o pipefail
+	# prelude (traces and error tracking)
+	source "$SCRIPT_DIR/lib/prelude.sh"
 	
-	local mutability albumtitle albumartist trackindex title youtubeid
-	IFS=$DLM read -r mutability albumtitle albumartist trackindex title youtubeid <<< "$1"
+	local mutability albumtitle albumartist trackindex title video_id
+	IFS=$DLM read -r mutability albumtitle albumartist trackindex title video_id <<< "$1"
 
-	local file_path # theses paths are sharded by the first character
-	path_store_sharded_nr file_path "$youtubeid" ".mp3"
+	# this is supposed to be a single atomic operation that might either succeed or
+	# fail, which is why downloading is done by the ID boundary and not a playlist
+
+	local final_output_path # theses paths are sharded by the first character
+	path_store_sharded_nr final_output_path "$video_id" ".mp3"
+	
+	local exists=false
+	if [[ -f "$final_output_path" ]]; then exists=true; fi
+
+	if $exists && [[ "$mutability" == "immutable" ]]; then
+		return
+	fi
 
 	# don't touch a single subshell here (no mktmp -d)
 	# https://nullprogram.com/blog/2018/12/25/ for $RANDOM
@@ -397,8 +409,65 @@ parallel_download_track() {
 	mkdir "$tmp_dir"
 	trap 'rm -rf "$tmp_dir"' EXIT
 
-	echo $file_path
-	echo $mutability $albumtitle $albumartist $trackindex $title $youtubeid
+	local processed_file="${tmp_dir}/processed.mp3"
+	local music_url="https://www.youtube.com/watch?v=${video_id}"
+
+	if $exists && [[ "$mutability" == "mutable" ]]; then
+		# metadata might have changed, lets reapply it
+		cp "$final_output_path" "$processed_file"
+	elif ! $exists; then
+		local downloaded_file="${tmp_dir}/download.mp3"
+		
+		yt-dlp \
+			-f bestaudio -t mp3 --audio-quality 0 \
+			--no-warnings \
+			--embed-metadata --embed-thumbnail --convert-thumbnails jpg \
+			--continue \
+			--cookies "$DATA_DIR/cookies.txt" \
+			-o "$downloaded_file" \
+			"$music_url" > /dev/null
+
+		if [[ ! -f "$downloaded_file" ]]; then
+			log "WARN yt-dlp failed to download ${video_id}"
+			return 1 # signal to parallel
+		fi
+
+		# iPod Classic (Rockbox)
+
+		# extract coverart into location (thanks for yt-dlp for extracting it nicely)
+		local tmp_img="${tmp_dir}/coverart.jpg"
+		ffmpeg -v error -i "$downloaded_file" -an -vcodec copy -f image2pipe - | \
+		convert - -resize "320x320^" -gravity center -extent 320x320 \
+				-strip -colorspace sRGB -type TrueColor -interlace none \
+				-sampling-factor 2x2,1x1,1x1 -quality 85 "$tmp_img"
+
+		ffmpeg -v error -i "$downloaded_file" -map 0:a -c:a copy -map_metadata 0 -id3v2_version 3 -y "$processed_file"
+		eyeD3 --quiet --add-image "$tmp_img:FRONT_COVER" "$processed_file" > /dev/null 2>&1
+	fi
+
+	eyeD3 --quiet \
+		--album="$albumtitle" \
+		--album-artist="$albumartist" \
+		--title="$title" \
+		--track="$trackindex" \
+		"$processed_file" > /dev/null 2>&1
+	
+	# atomic is a misnomer, really we just want to support ctrl-Cing the script at will
+	# mv isn't atomic over different filesystems anyway
+	mv "$processed_file" "$final_output_path"
+
+	local cr_kind
+	if $exists; then cr_kind="edited"; else cr_kind="downloaded"; fi
+
+	local log_msg
+	printf -v log_msg "%-10s %-11s %-20s %02d %s" \
+		"$cr_kind" \
+		"$video_id" \
+		"${albumartist:0:20}" \
+		"${trackindex#0}" \
+		"$title"
+	
+	log "$log_msg"
 }
 export -f parallel_download_track
 
@@ -408,18 +477,38 @@ handle_missing() {
 	log "${#collected_tracks_list[@]} collected tracks"
 
 	path_store_shards_youtube_id
+	log "downloading missing JOBS=$JOBS"
 	parallel \
 		--jobs "$JOBS" \
 		--line-buffer \
 		parallel_download_track {} ::: "${collected_tracks_list[@]}"
 }
 
-if [[ ! -d "$DATA_DIR" ]]; then
-	assert_fail "the data directory $DATA_DIR is not a folder or does not exist"
-fi
+main() {
+	if [[ ! -d "$DATA_DIR" ]]; then
+		assert_fail "the data directory $DATA_DIR is not a folder or does not exist"
+	fi
+	if ! command -v yt-dlp &> /dev/null; then
+		assert_fail "'yt-dlp' could not be found. please install it"
+	fi
+	if ! command -v ffmpeg &> /dev/null; then
+		assert_fail "'ffmpeg' could not be found. please install it"
+	fi
+	if ! command -v parallel &> /dev/null; then
+		assert_fail "'parallel' could not be found. please install it"
+	fi
+	if ! command -v convert &> /dev/null; then
+		assert_fail "'imagemagick' (convert) could not be found. please install it"
+	fi
+	if ! command -v eyeD3 &> /dev/null; then
+		assert_fail "'eyeD3' could not be found. please install it"
+	fi
 
-handle_seed
-handle_missing
+	handle_seed
+	handle_missing
+}
+
+main
 
 #for line in "${collected_tracks_list[@]}"; do
 #	IFS=$DLM read -r mutability albumtitle albumartist trackindex title youtubeid <<< "$line"

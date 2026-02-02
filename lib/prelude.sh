@@ -26,20 +26,11 @@ log() {
 	echo >&2 "[INFO] ${1}"
 }
 
-die() {
-	echo >&2 "[ERROR] ${1}"
-	exit 1
-}
-
 assert_fail() {
 	local msg="${1:-"no message provided"}"
 	local line="${BASH_LINENO[0]}"
 	local file="${BASH_SOURCE[1]}"
 	
-	die "assertion failed in ${file} at line ${line}: ${msg}"
+	echo >&2 "[ERROR] assertion failed in ${file} at line ${line}: ${msg}"
+	exit 1
 }
-
-# parallel
-export -f log
-export -f die
-export -f assert_fail

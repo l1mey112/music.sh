@@ -1,3 +1,5 @@
 music/*
 !music/_Schema
 !music/*.rec
+music_old
+cookies.txt
