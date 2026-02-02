@@ -331,7 +331,7 @@ handle_seed() {
 
 		[[ -n $artist ]] || assert_fail "seed file is malformed: Artist in the wrong order, must be first"
 
-		if [[ "$line" == PlaylistRefresh:* ]] || [[ "$line" == PlaylistUploads:* ]]; then
+		if [[ "$line" == Playlist:* ]] || [[ "$line" == PlaylistRefresh:* ]] || [[ "$line" == PlaylistUploads:* ]]; then
 			local line_kind playlist
 			IFS=": " read -r line_kind playlist <<< "$line"
 			
@@ -340,13 +340,20 @@ handle_seed() {
 			local title
 			title=$(playlist_extract_title "$playlist")
 
+			local metadata="mutable"
+
+			# normal Playlist (either release OLAK or otherwise)
+			if [[ "$line_kind" == "Playlist" ]]; then
+				metadata="immutable"
+			fi
+
 			# add prefix to upload playlists, otherwise treat like a refresh
 			if [[ "$line_kind" == "PlaylistUploads" ]]; then
 				title="Uploads - $title"
 			fi
 
 			# (artist, playlist, title)
-			urls=( "${urls[@]}" "mutable;$artist;$playlist;$title" )
+			urls=( "${urls[@]}" "$metadata;$artist;$playlist;$title" )
 		fi
 
 		if [[ "$line" == Playlists:* ]]; then
@@ -360,7 +367,7 @@ handle_seed() {
 
 		#((amount++)) - with `set -e` this entire thing dies as amount=0
 		amount=$((amount + 1))
-	done < <(recsel -e "Epoch < $current_epoch - $RECHECK_INTERVAL" -p Artist,Playlists,PlaylistRefresh,PlaylistUploads "$SEED")
+	done < <(recsel -e "Epoch < $current_epoch - $RECHECK_INTERVAL" -p Artist,Playlists,Playlist,PlaylistRefresh,PlaylistUploads "$SEED")
 
 	local tuple
 	for tuple in "${urls[@]}"; do
