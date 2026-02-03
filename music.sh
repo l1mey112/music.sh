@@ -3,6 +3,53 @@
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 readonly SCRIPT_DIR
 
+# PRELUDE {{
+
+_failure() {
+	local exit_code=$?
+	local line_no=$1
+	local command="$2"
+
+	echo >&2 "${BASH_SOURCE[1]}:$line_no: '$command' failed with exit code $exit_code"
+
+	if [ ${#FUNCNAME[@]} -gt 2 ]; then
+		for ((i=1; i<${#FUNCNAME[@]}-1; i++)); do
+			echo >&2 "  $i: ${BASH_SOURCE[$i+1]}:${BASH_LINENO[$i]} -> ${FUNCNAME[$i]}()"
+		done
+	fi
+	exit "$exit_code"
+}
+
+trap '_failure ${LINENO} "$BASH_COMMAND"' ERR
+
+log() {
+	echo >&2 "[INFO] ${1}"
+}
+
+assert_fail() {
+	local msg="${1:-"no message provided"}"
+	local line="${BASH_LINENO[0]}"
+	local file="${BASH_SOURCE[1]}"
+	
+	echo >&2 "[ERROR] assertion failed in ${file} at line ${line}: ${msg}"
+	exit 1
+}
+
+activate_prelude() {
+    set -o errexit
+    set -o nounset
+    set -o pipefail
+    set -o errtrace 
+    
+    # We trap the ERR signal to the _failure function
+    trap '_failure ${LINENO} "$BASH_COMMAND"' ERR
+}
+export -f _failure log assert_fail activate_prelude
+
+activate_prelude
+
+# }}
+
 # NOTE: do not use readonly in functions, these create global variables
 readonly SECONDS_MINUTE=60
 readonly SECONDS_HOUR=$((60 * SECONDS_MINUTE))
@@ -10,17 +57,65 @@ readonly SECONDS_HOUR=$((60 * SECONDS_MINUTE))
 # PARAMETERS {{
 
 readonly JOBS=${JOBS:-4}
-DATA_DIR=${DATA_DIR:-"$SCRIPT_DIR/music"}
+DATA_DIR=${DATA_DIR:-"$SCRIPT_DIR"}
 DATA_DIR="${DATA_DIR%/}"
 readonly DATA_DIR
 
 # TODO: add a fuzz factor as well
-readonly RECHECK_INTERVAL=${RECHECK_INTERVAL:-$((48 * SECONDS_HOUR))}
+readonly RECHECK_INTERVAL=${RECHECK_INTERVAL:-$((72 * SECONDS_HOUR))}
 
 # }}
 
-source "$SCRIPT_DIR/lib/prelude.sh"
-source "$SCRIPT_DIR/lib/path.sh"
+path_safe() {
+	local k="$1"
+
+	# Replace / characters with ⧸
+	k="${k//\//⧸}"
+
+	# Backslash -> Full-width Reverse Solidus
+	k="${k//\\/＼}"
+
+	k="${k//:/∶}"     # Colon -> Ratio (U+2236)
+	k="${k//\[/［}"   # Left Bracket -> Full-width (U+FF3B)
+	k="${k//\]/］}"   # Right Bracket -> Full-width (U+FF3D)
+	
+	k="${k//|/∣}"   # | -> ∣ (divides)
+	
+	k="${k//</＜}"   # < -> ＜ (Full-width Less-than U+FF1C)
+	k="${k//>/＞}"   # > -> ＞ (Full-width Greater-than U+FF1E)
+	
+	# Remove :?* characters
+	k="${k//[:?*]/}"
+	# Replace " with '
+	k="${k//\"/\'}"
+	echo "$k"
+}
+
+# use namerefs because the last thing we want to do is spawn 1000 subshells
+
+path_store_shards_youtube_id() {
+	local folder="$DATA_DIR/_Store"
+
+	# https://wiki.archiveteam.org/index.php/YouTube/Technical_details
+	log "creating shards _Store/[A-Za-z0-9_-]/"
+	mkdir -p "$folder"/{A..Z} "$folder"/{a..z} "$folder"/{0..9} "$folder"/- "$folder"/_
+}
+
+# assumed that the correct shard already exists as a folder
+# use path_store_shards_youtube_id to create them
+path_store_sharded_nr() {
+	local -n out=$1
+	local -r ID="$2"
+	local -r EXT="$3"
+
+	# we shard by a single character. why? who knows.
+	local folder="$DATA_DIR/_Store/${ID:0:1}"
+	
+	# https://github.com/koalaman/shellcheck/issues/2071
+	# https://github.com/koalaman/shellcheck/issues/817
+	# shellcheck disable=SC2034
+	out="$folder/$ID$EXT"
+}
 
 # TODO: switch to using \x1f as a separator instead of ; where it matters
 readonly DLM=$'\x1f'
@@ -188,7 +283,7 @@ collect_tracks() {
 
 	while IFS= read -r -d '' file_path; do
 		parse_recfile_album "$file_path"
-	done < <(rg -uu -l0F "%rec: AlbumDescriptor _Schema/AlbumDescriptor.rec" "$DATA_DIR" -g '!/_*')
+	done < <(rg -uu -l0F "%rec: AlbumDescriptor _Schema/AlbumDescriptor.rec" "$DATA_DIR" -g '!/_*' -g '*.rec')
 }
 
 handle_seed_playlist_list() {
@@ -400,7 +495,7 @@ export -f path_store_sharded_nr
 export SCRIPT_DIR DATA_DIR DLM
 parallel_download_track() {
 	# prelude (traces and error tracking)
-	source "$SCRIPT_DIR/lib/prelude.sh"
+	activate_prelude
 	
 	local mutability albumtitle albumartist trackindex title video_id
 	IFS=$DLM read -r mutability albumtitle albumartist trackindex title video_id <<< "$1"
