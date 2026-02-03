@@ -93,6 +93,22 @@ path_safe() {
 
 # use namerefs because the last thing we want to do is spawn 1000 subshells
 
+str2hex_nr() {
+    local -n out_hex=$1
+    local -r in_str="$2"
+    local i ch val
+    
+    out_hex=""
+    for (( i=0; i<${#in_str}; i++ )); do
+        ch="${in_str:$i:1}"
+        printf -v val "%02X" "'$ch"
+        out_hex+="$val"
+    done
+}
+
+# NOTE: the FAT32 filesystem is CASE-INSENSITIVE.
+#       files in 
+
 path_store_shards_youtube_id() {
 	local folder="$DATA_DIR/_Store"
 
@@ -108,9 +124,12 @@ path_store_sharded_nr() {
 	local -r ID="$2"
 	local -r EXT="$3"
 
-	# we shard by a single character. why? who knows.
-	local folder="$DATA_DIR/_Store/${ID:0:1}"
-	
+	local hex_id
+	str2hex_nr hex_id "$ID"
+
+	# shard by two hex characters (256 choices)
+	local folder="$DATA_DIR/_Store/${hex_id:0:2}"
+
 	# https://github.com/koalaman/shellcheck/issues/2071
 	# https://github.com/koalaman/shellcheck/issues/817
 	# shellcheck disable=SC2034
@@ -491,7 +510,7 @@ handle_seed() {
 }
 
 # certain exports are needed for parallel
-export -f path_store_sharded_nr
+export -f str2hex_nr path_store_sharded_nr
 export SCRIPT_DIR DATA_DIR DLM
 parallel_download_track() {
 	# prelude (traces and error tracking)
