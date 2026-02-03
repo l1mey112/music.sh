@@ -126,8 +126,8 @@ path_store_shards_youtube_id() {
 	local folder="$DATA_DIR/_Store"
 
 	# https://wiki.archiveteam.org/index.php/YouTube/Technical_details
-	log "creating shards _Store/[A-Za-z0-9_-]/"
-	mkdir -p "$folder"/{A..Z} "$folder"/{a..z} "$folder"/{0..9} "$folder"/- "$folder"/_
+	log "creating 64 shards"
+	mkdir -p "$folder"/{2D,30,31,32,33,34,35,36,37,38,39,41,42,43,44,45,46,47,48,49,4A,4B,4C,4D,4E,4F,50,51,52,53,54,55,56,57,58,59,5A,5F,61,62,63,64,65,66,67,68,69,6A,6B,6C,6D,6E,6F,70,71,72,73,74,75,76,77,78,79,7A}
 }
 
 # assumed that the correct shard already exists as a folder
@@ -146,7 +146,7 @@ path_store_sharded_nr() {
 	# https://github.com/koalaman/shellcheck/issues/2071
 	# https://github.com/koalaman/shellcheck/issues/817
 	# shellcheck disable=SC2034
-	out="$folder/$ID$EXT"
+	out="$folder/$hex_id$EXT"
 }
 
 # TODO: switch to using \x1f as a separator instead of ; where it matters
@@ -535,7 +535,7 @@ parallel_download_track() {
 	# this is supposed to be a single atomic operation that might either succeed or
 	# fail, which is why downloading is done by the ID boundary and not a playlist
 
-	local final_output_path # theses paths are sharded by the first character
+	local final_output_path
 	path_store_sharded_nr final_output_path "$video_id" ".mp3"
 	
 	local exists=false
@@ -554,10 +554,10 @@ parallel_download_track() {
 	local processed_file="${tmp_dir}/processed.mp3"
 	local music_url="https://www.youtube.com/watch?v=${video_id}"
 
-	if $exists && [[ "$mutability" == "mutable" ]]; then
+	if $exists; then
 		# metadata might have changed, lets reapply it
 		cp "$final_output_path" "$processed_file"
-	elif ! $exists; then
+	else
 		local downloaded_file="${tmp_dir}/download.mp3"
 		
 		yt-dlp \
@@ -585,6 +585,10 @@ parallel_download_track() {
 
 		ffmpeg -v error -i "$downloaded_file" -map 0:a -c:a copy -map_metadata 0 -id3v2_version 3 -y "$processed_file"
 		eyeD3 --quiet --add-image "$tmp_img:FRONT_COVER" "$processed_file" > /dev/null 2>&1
+	fi
+
+	if [[ ! -f "$processed_file" ]]; then
+		assert_fail "did not download $processed_file, doesn't exist ($video_id)"
 	fi
 
 	eyeD3 --quiet \
@@ -671,9 +675,19 @@ EOF
 	exit
 }
 
+path_youtube_id_path() {
+	local path
+	path_store_sharded_nr path "$1" ".mp3"
+	echo "$path"
+}
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         -h|-\?|--help) show_help ;;
+        --path-youtube-id)
+			path_youtube_id_path "$2"
+			shift; exit
+			;;
         -?*)
             assert_fail "unknown option: $1\n"
             ;;
@@ -684,8 +698,3 @@ while [[ $# -gt 0 ]]; do
 done
 
 main
-
-#for line in "${collected_tracks_list[@]}"; do
-#	IFS=$DLM read -r mutability albumtitle albumartist trackindex title youtubeid <<< "$line"
-#	echo $mutability $albumtitle $albumartist $trackindex $title $youtubeid
-#done
