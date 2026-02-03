@@ -1,8 +1,9 @@
 %rec: Seed
 %type: Artist line
+%type: Playlist line
 %type: PlaylistRefresh line
 %type: PlaylistUploads line
-%type: Playlists line
+%type: Releases line
 %type: Epoch int
 %key: Artist
 %mandatory: Epoch
@@ -12,10 +13,8 @@
 Artist: kamome sano
 Playlists: https://www.youtube.com/@kamomesano/releases
 PlaylistUploads: https://www.youtube.com/@kamomesano
-Epoch: 1769928722
-
-#PlaylistRefresh: https://www.youtube.com/playlist?list=PLWQ_9nw8gt-UkgG6c7YoI7wjUYZcvT9zX
+Epoch: 0
 
 Artist: RewindFlash
 Playlists: https://www.youtube.com/@Rewind-Flash/releases
-Epoch: 1769928683
+Epoch: 0

@@ -1,4 +1,17 @@
 #!/usr/bin/env bash
+#
+# Copyright (C) 2026 l-m.dev
+# 
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, version 3.
+# 
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 readonly SCRIPT_DIR
@@ -302,7 +315,7 @@ collect_tracks() {
 
 	while IFS= read -r -d '' file_path; do
 		parse_recfile_album "$file_path"
-	done < <(rg -uu -l0F "%rec: AlbumDescriptor _Schema/AlbumDescriptor.rec" "$DATA_DIR" -g '!/_*' -g '*.rec')
+	done < <(rg -uu -l0F "%rec: AlbumDescriptor _Schema/AlbumDescriptor.rec" "$DATA_DIR" -g '!/_*' -g '*.rec' || true)
 }
 
 handle_seed_playlist_list() {
@@ -639,6 +652,36 @@ main() {
 	handle_seed
 	handle_missing
 }
+
+show_help() {
+    cat << EOF
+Usage: ${0##*/}
+Manage your music library metadata and organization.
+
+Options:
+  -h, --help           Display this help and exit
+
+Copyright (C) 2026 l-m.dev.
+License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>.
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+
+Report bugs to: <https://github.com/l1mey112/music.sh/issues>
+EOF
+	exit
+}
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|-\?|--help) show_help ;;
+        -?*)
+            assert_fail "unknown option: $1\n"
+            ;;
+        *)
+            break
+    esac
+    shift
+done
 
 main
 
