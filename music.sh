@@ -442,8 +442,9 @@ EOF
 	fi
 }
 
+# accepts seed file
 handle_seed() {
-	local -r SEED="$DATA_DIR/Seed.rec"
+	local -r SEED="$1"
 	log "seed file $SEED"
 
 	# artist;playlist;title
@@ -630,6 +631,8 @@ handle_missing() {
 		parallel_download_track {} ::: "${collected_tracks_list[@]}"
 }
 
+MAIN_FIND_MISSING=true
+
 main() {
 	if [[ ! -d "$DATA_DIR" ]]; then
 		assert_fail "the data directory $DATA_DIR is not a folder or does not exist"
@@ -653,17 +656,32 @@ main() {
 		assert_fail "'eyeD3' could not be found. please install it"
 	fi
 
-	handle_seed
-	handle_missing
+	local -r SEEDS=("$@")
+
+	#local -r SEED="$DATA_DIR/Seed.rec"
+
+	for SEED in "${SEEDS[@]}"; do
+		handle_seed "$SEED"
+	done
+
+	if $MAIN_FIND_MISSING; then
+		if [ ${#SEEDS[@]} -eq 0 ]; then
+			log "no seed files passed"
+		fi
+		handle_missing
+	fi
 }
 
 show_help() {
     cat << EOF
-Usage: ${0##*/}
+Usage: ${0##*/} [OPTION...] [FILE...]
 Manage your music library metadata and organization.
 
 Options:
-  -h, --help           Display this help and exit
+  -h, --help                          Display this help and exit
+
+  --path-youtube-id path-to/hex.mp3   Prints out YouTube ID at path to a file in the Store
+  --ignore-missing                    Don't check for missing files to download
 
 Copyright (C) 2026 l-m.dev.
 License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>.
@@ -681,12 +699,17 @@ path_youtube_id_path() {
 	echo "$path"
 }
 
+# TODO append to an array, so allow ./music.sh File.rec --options-after
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         -h|-\?|--help) show_help ;;
         --path-youtube-id)
 			path_youtube_id_path "$2"
 			shift; exit
+			;;
+		--ignore-missing)
+			MAIN_FIND_MISSING=false
 			;;
         -?*)
             assert_fail "unknown option: $1\n"
@@ -697,4 +720,4 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-main
+main "$@"
