@@ -49,13 +49,13 @@ assert_fail() {
 }
 
 activate_prelude() {
-    set -o errexit
-    set -o nounset
-    set -o pipefail
-    set -o errtrace 
-    
-    # We trap the ERR signal to the _failure function
-    trap '_failure ${LINENO} "$BASH_COMMAND"' ERR
+	set -o errexit
+	set -o nounset
+	set -o pipefail
+	set -o errtrace 
+	
+	# We trap the ERR signal to the _failure function
+	trap '_failure ${LINENO} "$BASH_COMMAND"' ERR
 }
 export -f _failure log assert_fail activate_prelude
 
@@ -107,16 +107,16 @@ path_safe() {
 # use namerefs because the last thing we want to do is spawn 1000 subshells
 
 str2hex_nr() {
-    local -n out_hex=$1
-    local -r in_str="$2"
-    local i ch val
-    
-    out_hex=""
-    for (( i=0; i<${#in_str}; i++ )); do
-        ch="${in_str:$i:1}"
-        printf -v val "%02X" "'$ch"
-        out_hex+="$val"
-    done
+	local -n out_hex=$1
+	local -r in_str="$2"
+	local i ch val
+	
+	out_hex=""
+	for (( i=0; i<${#in_str}; i++ )); do
+		ch="${in_str:$i:1}"
+		printf -v val "%02X" "'$ch"
+		out_hex+="$val"
+	done
 }
 
 # NOTE: the FAT32 filesystem is CASE-INSENSITIVE.
@@ -673,7 +673,7 @@ main() {
 }
 
 show_help() {
-    cat << EOF
+	cat << EOF
 Usage: ${0##*/} [OPTION...] [FILE...]
 Manage your music library metadata and organization.
 
@@ -702,22 +702,22 @@ path_youtube_id_path() {
 # TODO append to an array, so allow ./music.sh File.rec --options-after
 
 while [[ $# -gt 0 ]]; do
-    case $1 in
-        -h|-\?|--help) show_help ;;
-        --path-youtube-id)
+	case $1 in
+		-h|-\?|--help) show_help ;;
+		--path-youtube-id)
 			path_youtube_id_path "$2"
 			shift; exit
 			;;
 		--ignore-missing)
 			MAIN_FIND_MISSING=false
 			;;
-        -?*)
-            assert_fail "unknown option: $1\n"
-            ;;
-        *)
-            break
-    esac
-    shift
+		-?*)
+			assert_fail "unknown option: $1\n"
+			;;
+		*)
+			break
+	esac
+	shift
 done
 
 main "$@"
