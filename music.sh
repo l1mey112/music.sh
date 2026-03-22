@@ -54,7 +54,7 @@ activate_prelude() {
 	set -o pipefail
 	set -o errtrace 
 	
-	# We trap the ERR signal to the _failure function
+	# we trap the ERR signal to the _failure function
 	trap '_failure ${LINENO} "$BASH_COMMAND"' ERR
 }
 export -f _failure log assert_fail activate_prelude

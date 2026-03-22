@@ -51,7 +51,7 @@ activate_prelude() {
 	set -o pipefail
 	set -o errtrace 
 	
-	# We trap the ERR signal to the _failure function
+	# we trap the ERR signal to the _failure function
 	trap '_failure ${LINENO} "$BASH_COMMAND"' ERR
 }
 export -f _failure log assert_fail activate_prelude
@@ -62,11 +62,15 @@ activate_prelude
 
 show_help() {
 	cat << EOF
-Usage: ${0##*/} [ALBUM_ARTIST] [FILE...]
+Usage: ${0##*/} [OPTIONS] ALBUM_ARTIST [ALBUM_ART_PATH] -- [FILE...]
 Convert audio files to MP3 and set album artist metadata.
 
 Options:
   -h, --help                          Display this help and exit
+
+Examples:
+  
+  ./conv.sh 'MEGAREX' cover.jpg -- *.flac && rm *.flac
 
 Copyright (C) 2026 l-m.dev.
 License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>.
@@ -86,27 +90,50 @@ while [[ $# -gt 0 ]]; do
 	shift
 done
 
-if [[ $# -lt 2 ]]; then
+if [[ $# -lt 3 ]]; then
 	show_help
 	exit 1
 fi
 
 albumartist="$1"
+custom_art=""
 shift
+
+custom_art=""
+if [[ "$1" != "--" ]]; then
+	custom_art="$1"
+	shift
+fi
+
+if [[ "$1" == "--" ]]; then
+	shift
+else
+	assert_fail "expected '--' before file list"
+fi
 
 for file in "$@"; do
 	out="${file%.*}.mp3"
 	
 	if [[ -f "$out" ]]; then
+		log "(already exists) $out"
 		continue
 	fi
 
 	tmp_img="/tmp/coverart_$$_${RANDOM}.jpg"
 
-	ffmpeg -v error -i "$file" -an -vcodec copy -f image2pipe - | \
-	convert - -resize "320x320^" -gravity center -extent 320x320 \
+	log "$file -> $out"
+	if [[ -n "$custom_art" && -f "$custom_art" ]]; then
+		# TODO this converts every time... bruh fix later
+		convert "$custom_art" -resize "320x320^" -gravity center -extent 320x320 \
 			-strip -colorspace sRGB -type TrueColor -interlace none \
 			-sampling-factor 2x2,1x1,1x1 -quality 85 "$tmp_img"
+	else
+	
+		ffmpeg -v error -i "$file" -an -vcodec copy -f image2pipe - | \
+		convert - -resize "320x320^" -gravity center -extent 320x320 \
+			-strip -colorspace sRGB -type TrueColor -interlace none \
+			-sampling-factor 2x2,1x1,1x1 -quality 85 "$tmp_img"
+	fi
 
 	ffmpeg -v error -i "$file" -map 0:a -c:a libmp3lame -q:a 0 -map_metadata 0 -id3v2_version 3 -y "$out"
 
