@@ -560,7 +560,9 @@ parallel_download_track() {
 		cp "$final_output_path" "$processed_file"
 	else
 		local downloaded_file="${tmp_dir}/download.mp3"
+		local status=0
 		
+		# if things break or something, `yt-dlp --update-to nightly`
 		yt-dlp \
 			-f bestaudio -t mp3 --audio-quality 0 \
 			--no-warnings \
@@ -568,9 +570,9 @@ parallel_download_track() {
 			--continue \
 			--cookies "$DATA_DIR/cookies.txt" \
 			-o "$downloaded_file" \
-			"$music_url" > /dev/null
+			"$music_url" > /dev/null || status=$?
 
-		if [[ ! -f "$downloaded_file" ]]; then
+		if [[ $status -ne 0 || ! -f "$downloaded_file" ]]; then
 			log "WARN yt-dlp failed to download ${video_id}"
 			return 1 # signal to parallel
 		fi
