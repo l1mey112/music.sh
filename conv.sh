@@ -71,6 +71,8 @@ Options:
 Examples:
   
   ./conv.sh 'MEGAREX' cover.jpg -- *.flac && rm *.flac
+  
+  ./conv.sh 'RewindFlash' -- *.not_mp3 && rm *.not_mp3
 
 Copyright (C) 2026 l-m.dev.
 License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>.
